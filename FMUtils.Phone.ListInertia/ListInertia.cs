@@ -41,18 +41,18 @@ namespace FMUtils.Phone.Animation
 
         private static void OnIsPivotAnimatedChanged(DependencyObject d, DependencyPropertyChangedEventArgs args)
         {
-            (d as ItemsControl).Loaded += ItemsControl_Loaded;
+            (d as FrameworkElement).Loaded += FrameworkElement_Loaded;
         }
 
-        private static void ItemsControl_Loaded(object sender, RoutedEventArgs re)
+        private static void FrameworkElement_Loaded(object sender, RoutedEventArgs re)
         {
-            var list = sender as ItemsControl;
+            var el = sender as FrameworkElement;
 
             // locate the pivot control that this list is within
-            Pivot pivot = list.Ancestors<Pivot>().Single() as Pivot;
+            Pivot pivot = el.Ancestors<Pivot>().Single() as Pivot;
 
             // and its index within the pivot
-            int pivotIndex = pivot.Items.IndexOf(list.Ancestors<PivotItem>().Single());
+            int pivotIndex = pivot.Items.IndexOf(el.Ancestors<PivotItem>().Single());
 
             bool selectionChanged = false;
             pivot.SelectionChanged += (s, e) => selectionChanged = true;
@@ -72,24 +72,30 @@ namespace FMUtils.Phone.Animation
                 bool fromRight = e.TotalManipulation.Translation.X <= 0;
 
                 // locate the stack panel that hosts the items
-                VirtualizingStackPanel vsp = list.Descendants<VirtualizingStackPanel>().First() as VirtualizingStackPanel;
+                VirtualizingStackPanel vsp = el.Descendants<VirtualizingStackPanel>().First() as VirtualizingStackPanel;
 
                 // iterate over each of the items in view
                 int firstVisibleItem = (int)vsp.VerticalOffset;
-                int visibleItemCount = (int)vsp.ViewportHeight;
-                for (int index = firstVisibleItem; index <= firstVisibleItem + visibleItemCount; index++)
-                {
-                    // find all the item that have the IndentLevel attached property set
-                    var lbi = list.ItemContainerGenerator.ContainerFromIndex(index);
-                    if (lbi == null)
-                        continue;
+                int visibleItemCount = (int)vsp.ViewportHeight + 1; // overestimate by one to account for a LongListSelector header
 
-                    vsp.Dispatcher.BeginInvoke(() =>
-                    {
-                        foreach (var a in lbi.Descendants().Where(p => ListInertia.GetIndentLevel(p) > -1).SelectMany(target => GetAnimations(target as FrameworkElement, fromRight)))
-                            a.Begin();
-                    });
-                };
+                var generator = vsp.ItemContainerGenerator.GetItemContainerGeneratorForPanel(vsp);
+
+                var AnimatedElements = vsp.Children
+                     .Where(c =>
+                     {
+                         var i = generator.IndexFromContainer(c);
+                         return i >= firstVisibleItem && i <= firstVisibleItem + visibleItemCount;
+                     })
+                     .SelectMany(v => v.Descendants().Where(p => ListInertia.GetIndentLevel(p) > -1))
+                     .ToList();
+
+                //System.Diagnostics.Debug.WriteLine(string.Format("Animating {0} items starting with {1} which consists of {2} animated elements", visibleItemCount, firstVisibleItem, AnimatedElements.Count));
+
+                vsp.Dispatcher.BeginInvoke(() =>
+                {
+                    foreach (var a in AnimatedElements.SelectMany(target => GetAnimations(target as FrameworkElement, fromRight)))
+                        a.Begin();
+                });
             };
         }
 
